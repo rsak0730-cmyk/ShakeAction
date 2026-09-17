@@ -20,13 +20,12 @@ class ShakeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-
         createNotificationChannel()
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("ShakeAction")
             .setContentText("Shake detection is active")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_launcher) 
             .setOngoing(true)
             .build()
 
@@ -40,6 +39,7 @@ class ShakeService : Service() {
         shakeDetector = ShakeDetector(cameraManager, cameraId)
 
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let { sensor ->
+            // SENSOR_DELAY_GAME updates much faster than NORMAL, improving shake accuracy
             sensorManager.registerListener(
                 shakeDetector,
                 sensor,
@@ -53,7 +53,7 @@ class ShakeService : Service() {
     }
 
     override fun onDestroy() {
-        if (::sensorManager.isInitialized) {
+        if (::sensorManager.isInitialized && ::shakeDetector.isInitialized) {
             sensorManager.unregisterListener(shakeDetector)
         }
         super.onDestroy()
@@ -68,7 +68,6 @@ class ShakeService : Service() {
                 "Shake detection",
                 NotificationManager.IMPORTANCE_LOW
             )
-
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
         }
