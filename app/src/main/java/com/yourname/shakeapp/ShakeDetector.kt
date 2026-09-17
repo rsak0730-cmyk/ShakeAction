@@ -20,7 +20,7 @@ class ShakeDetector(
     private var isRecovering = false 
     
     // Tuning the motion sensitivity
-    private val CHOP_THRESHOLD = 3.0F // The high G-force required for a deliberate chop
+    private val CHOP_THRESHOLD = 2.0F // The high G-force required for a deliberate chop
     private val RECOVERY_THRESHOLD = 1.5F // G-force must drop below this to separate chop 1 from chop 2
     private val MAX_TIME_BETWEEN_CHOPS = 600 // You have 600 milliseconds to perform the second chop
     private val COOLDOWN_AFTER_TOGGLE = 1000 // Prevents accidental double-toggles
