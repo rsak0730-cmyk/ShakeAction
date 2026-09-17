@@ -1,80 +1,75 @@
 package com.yourname.shakeapp
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
-import android.content.Context
-import android.content.Intent
 import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.hardware.camera2.CameraManager
-import android.os.Build
-import android.os.IBinder
-import androidx.core.app.NotificationCompat
+import kotlin.math.sqrt
 
-class ShakeService : Service() {
+class ShakeDetector(
+    private val cameraManager: CameraManager,
+    private val cameraId: String
+) : SensorEventListener {
 
-    private lateinit var sensorManager: SensorManager
-    private lateinit var shakeDetector: ShakeDetector
+    private var isFlashlightOn = false
+    private var chopCount = 0
+    private var lastChopTime: Long = 0
+    private var lastToggleTime: Long = 0
 
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannel()
+    // --- MOTOROLA CHOP TUNING ---
+    // 2.5G requires a firm, deliberate chop. 
+    private val CHOP_THRESHOLD_G = 2.5F 
+    // 200ms ignores the "rebound" when you pull your hand back up
+    private val MIN_TIME_BETWEEN_CHOPS_MS = 200 
+    // You have 0.8 seconds to complete the second chop
+    private val MAX_TIME_BETWEEN_CHOPS_MS = 800 
 
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ShakeAction")
-            .setContentText("Shake detection is active")
-            .setSmallIcon(R.drawable.ic_launcher) 
-            .setOngoing(true)
-            .build()
+    override fun onSensorChanged(event: SensorEvent) {
+        val x = event.values[0] / SensorManager.GRAVITY_EARTH
+        val y = event.values[1] / SensorManager.GRAVITY_EARTH
+        val z = event.values[2] / SensorManager.GRAVITY_EARTH
 
-        startForeground(NOTIFICATION_ID, notification)
+        // Calculate total physical force
+        val gForce = sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+        val now = System.currentTimeMillis()
 
-        val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
-        val cameraId = cameraManager.cameraIdList.firstOrNull()
-            ?: throw IllegalStateException("No camera is available")
+        // 1. Prevent the light from rapidly flickering on/off
+        if (now - lastToggleTime < 1000) return
 
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        shakeDetector = ShakeDetector(cameraManager, cameraId)
+        // 2. Detect a hard spike in force (The Chop)
+        if (gForce > CHOP_THRESHOLD_G) {
+            
+            // If you took too long since the last chop, reset the count to 1
+            if (now - lastChopTime > MAX_TIME_BETWEEN_CHOPS_MS) {
+                chopCount = 1
+                lastChopTime = now
+                return
+            }
 
-        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let { sensor ->
-            // SENSOR_DELAY_GAME updates much faster than NORMAL, improving shake accuracy
-            sensorManager.registerListener(
-                shakeDetector,
-                sensor,
-                SensorManager.SENSOR_DELAY_GAME
-            )
+            // If it is a distinct second chop (not just your wrist bouncing back)
+            if (now - lastChopTime > MIN_TIME_BETWEEN_CHOPS_MS) {
+                chopCount++
+                lastChopTime = now
+
+                // 3. Trigger flashlight on exactly 2 chops
+                if (chopCount == 2) {
+                    toggleFlashlight()
+                    lastToggleTime = now
+                    chopCount = 0 // Reset for the next time
+                }
+            }
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
-    }
-
-    override fun onDestroy() {
-        if (::sensorManager.isInitialized && ::shakeDetector.isInitialized) {
-            sensorManager.unregisterListener(shakeDetector)
-        }
-        super.onDestroy()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Shake detection",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+    private fun toggleFlashlight() {
+        isFlashlightOn = !isFlashlightOn
+        try {
+            cameraManager.setTorchMode(cameraId, isFlashlightOn)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
-    companion object {
-        private const val CHANNEL_ID = "shake_detection"
-        private const val NOTIFICATION_ID = 1001
-    }
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 }
