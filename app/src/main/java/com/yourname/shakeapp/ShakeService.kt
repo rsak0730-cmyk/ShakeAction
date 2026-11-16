@@ -10,8 +10,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
 import android.hardware.SensorManager
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -37,61 +35,30 @@ class ShakeService : Service() {
             startForeground(NOTIFICATION_ID, createNotification())
         }
 
-        val cameraManager = getSystemService(CameraManager::class.java)
-        val backFlashCameraId = findBackFlashCameraId(cameraManager)
-
-        if (backFlashCameraId == null) {
-            stopSelf()
-            return
-        }
+        GestureActionExecutor.initTorchSync(this)
 
         sensorManager = getSystemService(SensorManager::class.java)
-
-        val linearAccel = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
-        val rawAccel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        val motionSensor = linearAccel ?: rawAccel
-
-        if (motionSensor == null) {
-            stopSelf()
-            return
-        }
-
-        val usesRaw = (linearAccel == null)
-        shakeDetector = ShakeDetector(this, cameraManager, backFlashCameraId, usesRaw)
+        shakeDetector = ShakeDetector(this)
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
-            "ShakeAction::ChopSensorWakeLock"
+            "ShakeAction::MotoGesturesWakeLock"
         ).apply {
             acquire()
         }
 
-        sensorManager.registerListener(
-            shakeDetector,
-            motionSensor,
-            SensorManager.SENSOR_DELAY_GAME
-        )
-
-        sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)?.let { proximitySensor ->
-            sensorManager.registerListener(
-                shakeDetector,
-                proximitySensor,
-                SensorManager.SENSOR_DELAY_NORMAL
-            )
+        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME)
         }
-    }
 
-    private fun findBackFlashCameraId(cameraManager: CameraManager): String? {
-        for (id in cameraManager.cameraIdList) {
-            val chars = cameraManager.getCameraCharacteristics(id)
-            val hasFlash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
-            val lensFacing = chars.get(CameraCharacteristics.LENS_FACING)
-            if (hasFlash && lensFacing == CameraCharacteristics.LENS_FACING_BACK) {
-                return id
-            }
+        sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME)
         }
-        return cameraManager.cameraIdList.firstOrNull()
+
+        sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)?.let {
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -101,7 +68,6 @@ class ShakeService : Service() {
     override fun onDestroy() {
         if (::sensorManager.isInitialized && ::shakeDetector.isInitialized) {
             sensorManager.unregisterListener(shakeDetector)
-            shakeDetector.cleanup()
         }
         wakeLock?.let {
             if (it.isHeld) it.release()
@@ -120,8 +86,8 @@ class ShakeService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Chop-Chop Flashlight Active")
-            .setContentText("Chop twice to toggle flashlight")
+            .setContentTitle("Moto Actions Active")
+            .setContentText("Chop, Twist, Pick Up & Flip gestures running")
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(openAppIntent)
             .setOngoing(true)
@@ -132,7 +98,7 @@ class ShakeService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Chop-Chop Gesture Service",
+                "Moto Motion Gestures",
                 NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
