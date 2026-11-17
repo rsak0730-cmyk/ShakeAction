@@ -67,42 +67,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnGrantPermissions.setOnClickListener {
-            val nm = getSystemService(NotificationManager::class.java)
-            if (!nm.isNotificationPolicyAccessGranted) {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-            } else if (!Settings.canDrawOverlays(this)) {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                )
-            } else {
-                requestIgnoreBatteryOptimizations()
-                Toast.makeText(this, "All Permissions Configured!", Toast.LENGTH_SHORT).show()
-            }
+            showPermissionChecklistDialog()
         }
 
         btnStart.setOnClickListener {
-            if (!Settings.canDrawOverlays(this)) {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                )
-            }
-            requestIgnoreBatteryOptimizations()
+            requestIgnoreBatteryOptimizationsSafe()
             prefs.edit().putBoolean("service_enabled", true).apply()
 
             val intent = Intent(this, ShakeService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+                updateStatusText(true)
+                Toast.makeText(this, "Moto Actions Engine Active", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Error starting service: ${e.message}", Toast.LENGTH_LONG).show()
             }
-            updateStatusText(true)
-            Toast.makeText(this, "Moto Actions Engine Active", Toast.LENGTH_SHORT).show()
         }
 
         btnStop.setOnClickListener {
@@ -113,6 +96,97 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateStatusText(prefs.getBoolean("service_enabled", false))
+    }
+
+    private fun showPermissionChecklistDialog() {
+        val nm = getSystemService(NotificationManager::class.java)
+        val dndStatus = if (nm.isNotificationPolicyAccessGranted) "✅ Granted" else "❌ Tap to Grant"
+        val overlayStatus = if (Settings.canDrawOverlays(this)) "✅ Granted" else "❌ Tap to Grant"
+
+        val pm = getSystemService(PowerManager::class.java)
+        val batteryStatus = if (pm.isIgnoringBatteryOptimizations(packageName)) "✅ Unrestricted" else "❌ Tap to Set"
+
+        val items = arrayOf(
+            "1. Do Not Disturb Access: $dndStatus",
+            "2. Display Over Other Apps: $overlayStatus",
+            "3. Battery Unrestricted: $batteryStatus",
+            "4. Open App Info (For Restricted Settings)"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Permissions Setup")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> openDndSettingsSafe()
+                    1 -> openOverlaySettingsSafe()
+                    2 -> requestIgnoreBatteryOptimizationsSafe()
+                    3 -> openAppDetailsSettings()
+                }
+            }
+            .show()
+    }
+
+    private fun openDndSettingsSafe() {
+        try {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        } catch (e: Exception) {
+            openAppDetailsSettings()
+            Toast.makeText(this, "Search 'Do Not Disturb' in Settings", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openOverlaySettingsSafe() {
+        try {
+            // Try direct package URI first
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        } catch (e: Exception) {
+            try {
+                // Fallback to general overlay list (prevents Samsung One UI crash)
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+            } catch (ex: Exception) {
+                openAppDetailsSettings()
+            }
+        }
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun requestIgnoreBatteryOptimizationsSafe() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(PowerManager::class.java)
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                    )
+                } catch (e: Exception) {
+                    openAppDetailsSettings()
+                }
+            }
+        }
+    }
+
+    private fun openAppDetailsSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            )
+            Toast.makeText(
+                this,
+                "Tap 3-dots (top right) -> 'Allow restricted settings' if grayed out",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun setupSensitivitySlider(
@@ -233,19 +307,6 @@ class MainActivity : AppCompatActivity() {
         }
         if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), 101)
-        }
-    }
-
-    @SuppressLint("BatteryLife")
-    private fun requestIgnoreBatteryOptimizations() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(PowerManager::class.java)
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-                startActivity(intent)
-            }
         }
     }
 }
