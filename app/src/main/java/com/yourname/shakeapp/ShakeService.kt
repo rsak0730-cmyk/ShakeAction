@@ -43,18 +43,18 @@ class ShakeService : Service() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         cpuWakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
-            "ShakeAction::RealtimeSensorHubLock"
+            "ShakeAction::MotoUltraLowLatencyLock"
         ).apply {
             acquire()
         }
 
-        // maxReportLatencyUs = 0 forces real-time delivery without hardware FIFO batching delay
+        // SENSOR_DELAY_FASTEST with 0 batching latency for authentic Moto Actions feel
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME, 0)
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_FASTEST, 0)
         }
 
         sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
-            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME, 0)
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_FASTEST, 0)
         }
 
         sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)?.let {
@@ -87,8 +87,8 @@ class ShakeService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Moto Actions Active")
-            .setContentText("Real-time hardware gesture engine running")
+            .setContentTitle("Moto Actions Pro Active")
+            .setContentText("Chop, Twist, Pick Up & Flip gestures running")
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(openAppIntent)
             .setOngoing(true)

@@ -16,6 +16,7 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
@@ -39,24 +40,24 @@ class MainActivity : AppCompatActivity() {
 
         val btnStart = findViewById<Button>(R.id.btnStartService)
         val btnStop = findViewById<Button>(R.id.btnStopService)
-        val btnGrantDnd = findViewById<Button>(R.id.btnGrantDnd)
+        val btnGrantPermissions = findViewById<Button>(R.id.btnGrantPermissions)
 
-        setupGestureCard(
-            gestureKey = "chop",
-            spinner = findViewById(R.id.spinnerChopAction),
-            pickAppBtn = findViewById(R.id.btnPickChopApp)
+        setupGestureCard("chop", findViewById(R.id.spinnerChopAction), findViewById(R.id.btnPickChopApp))
+        setupGestureCard("twist", findViewById(R.id.spinnerTwistAction), findViewById(R.id.btnPickTwistApp))
+        setupGestureCard("pickup", findViewById(R.id.spinnerPickupAction), findViewById(R.id.btnPickPickupApp))
+
+        setupSensitivitySlider(
+            prefKey = "chop_sensitivity",
+            labelPrefix = "Chop Sensitivity",
+            seekBar = findViewById(R.id.seekChopSensitivity),
+            labelView = findViewById(R.id.tvChopSensitivity)
         )
 
-        setupGestureCard(
-            gestureKey = "twist",
-            spinner = findViewById(R.id.spinnerTwistAction),
-            pickAppBtn = findViewById(R.id.btnPickTwistApp)
-        )
-
-        setupGestureCard(
-            gestureKey = "pickup",
-            spinner = findViewById(R.id.spinnerPickupAction),
-            pickAppBtn = findViewById(R.id.btnPickPickupApp)
+        setupSensitivitySlider(
+            prefKey = "twist_sensitivity",
+            labelPrefix = "Twist Sensitivity",
+            seekBar = findViewById(R.id.seekTwistSensitivity),
+            labelView = findViewById(R.id.tvTwistSensitivity)
         )
 
         val switchFlipDnd = findViewById<Switch>(R.id.switchFlipDnd)
@@ -65,18 +66,35 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putBoolean("flip_dnd_enabled", isChecked).apply()
         }
 
-        btnGrantDnd.setOnClickListener {
+        btnGrantPermissions.setOnClickListener {
             val nm = getSystemService(NotificationManager::class.java)
             if (!nm.isNotificationPolicyAccessGranted) {
                 startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+            } else if (!Settings.canDrawOverlays(this)) {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
             } else {
-                Toast.makeText(this, "DND & Silent Permission Already Granted", Toast.LENGTH_SHORT).show()
+                requestIgnoreBatteryOptimizations()
+                Toast.makeText(this, "All Permissions Configured!", Toast.LENGTH_SHORT).show()
             }
         }
 
         btnStart.setOnClickListener {
+            if (!Settings.canDrawOverlays(this)) {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            }
             requestIgnoreBatteryOptimizations()
             prefs.edit().putBoolean("service_enabled", true).apply()
+
             val intent = Intent(this, ShakeService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
@@ -84,17 +102,49 @@ class MainActivity : AppCompatActivity() {
                 startService(intent)
             }
             updateStatusText(true)
-            Toast.makeText(this, "Moto Actions Started", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Moto Actions Engine Active", Toast.LENGTH_SHORT).show()
         }
 
         btnStop.setOnClickListener {
             prefs.edit().putBoolean("service_enabled", false).apply()
             stopService(Intent(this, ShakeService::class.java))
             updateStatusText(false)
-            Toast.makeText(this, "Moto Actions Stopped", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Moto Actions Engine Stopped", Toast.LENGTH_SHORT).show()
         }
 
         updateStatusText(prefs.getBoolean("service_enabled", false))
+    }
+
+    private fun setupSensitivitySlider(
+        prefKey: String,
+        labelPrefix: String,
+        seekBar: SeekBar,
+        labelView: TextView
+    ) {
+        val prefs = getSharedPreferences("shake_prefs", Context.MODE_PRIVATE)
+        val saved = prefs.getInt(prefKey, 55)
+        seekBar.progress = saved
+        labelView.text = "$labelPrefix: ${getSensitivityTag(saved)} ($saved%)"
+
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                prefs.edit().putInt(prefKey, progress).apply()
+                labelView.text = "$labelPrefix: ${getSensitivityTag(progress)} ($progress%)"
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+    }
+
+    private fun getSensitivityTag(value: Int): String {
+        return when {
+            value >= 80 -> "Ultra Light"
+            value >= 65 -> "High"
+            value >= 45 -> "Moto Default"
+            value >= 25 -> "Firm"
+            else -> "Hard Shake"
+        }
     }
 
     private fun setupGestureCard(gestureKey: String, spinner: Spinner, pickAppBtn: Button) {
@@ -114,7 +164,6 @@ class MainActivity : AppCompatActivity() {
             GestureActionExecutor.getDefaultAction(gestureKey)
         )
         spinner.setSelection(savedAction)
-
         updateAppButtonLabel(gestureKey, pickAppBtn)
 
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -171,7 +220,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStatusText(running: Boolean) {
-        tvServiceStatus.text = if (running) "Status: Active (Running in Background)" else "Status: Stopped"
+        tvServiceStatus.text = if (running) "Status: Active (Ultra-Low Latency Running)" else "Status: Stopped"
     }
 
     private fun requestRuntimePermissions() {

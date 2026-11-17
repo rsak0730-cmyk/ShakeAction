@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0F172A"
+    android:background="#0B1120"
     android:fillViewport="true">
 
     <LinearLayout
@@ -25,15 +24,15 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:layout_marginBottom="16dp"
-            android:text="Motorola-grade gestures with custom actions"
+            android:text="100% Motorola-grade motion engine &amp; custom actions"
             android:textColor="#94A3B8"
-            android:textSize="14sp" />
+            android:textSize="13sp" />
 
-        <!-- Service Control Card -->
+        <!-- Service Control & Permissions Card -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="14dp"
             android:background="#1E293B"
             android:orientation="vertical"
             android:padding="16dp">
@@ -60,8 +59,9 @@
                     android:layout_marginEnd="8dp"
                     android:layout_weight="1"
                     android:backgroundTint="#10B981"
-                    android:text="Start Service"
-                    android:textColor="#FFFFFF" />
+                    android:text="Start Engine"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
 
                 <Button
                     android:id="@+id/btnStopService"
@@ -70,22 +70,23 @@
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
                     android:backgroundTint="#EF4444"
-                    android:text="Stop Service"
-                    android:textColor="#FFFFFF" />
+                    android:text="Stop Engine"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
             </LinearLayout>
 
             <Button
-                android:id="@+id/btnGrantDnd"
+                android:id="@+id/btnGrantPermissions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="10dp"
                 android:backgroundTint="#334155"
-                android:text="Grant Do Not Disturb / Silent Access"
+                android:text="Setup DND, Overlay &amp; Battery Permissions"
                 android:textColor="#E2E8F0"
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- 1. CHOP-CHOP GESTURE -->
+        <!-- 1. FAST CHOP-CHOP -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -97,7 +98,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="1. Fast Chop-Chop (Double Lateral Shake)"
+                android:text="1. Fast Chop-Chop (Double Lateral Chop)"
                 android:textColor="#FBBF24"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -106,7 +107,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:text="Chop wrist twice sideways"
+                android:text="Two crisp sideways chops (Default: Flashlight)"
                 android:textColor="#94A3B8"
                 android:textSize="12sp" />
 
@@ -126,9 +127,26 @@
                 android:text="Select App for Chop-Chop"
                 android:textColor="#FFFFFF"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvChopSensitivity"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Chop Sensitivity: Medium (Moto Default)"
+                android:textColor="#CBD5E1"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/seekChopSensitivity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:max="100"
+                android:progress="55" />
         </LinearLayout>
 
-        <!-- 2. TWIST-TWIST GESTURE -->
+        <!-- 2. QUICK TWIST-TWIST -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -149,7 +167,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:text="Twist wrist back and forth twice quickly"
+                android:text="Twist wrist twice quickly (Default: Open Camera)"
                 android:textColor="#94A3B8"
                 android:textSize="12sp" />
 
@@ -169,6 +187,23 @@
                 android:text="Select App for Twist-Twist"
                 android:textColor="#FFFFFF"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvTwistSensitivity"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Twist Sensitivity: Medium (Moto Default)"
+                android:textColor="#CBD5E1"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/seekTwistSensitivity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:max="100"
+                android:progress="55" />
         </LinearLayout>
 
         <!-- 3. PICK UP GESTURE -->
@@ -192,7 +227,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:text="Lift phone from flat surface to upright"
+                android:text="Lift phone from flat surface to upright (Default: Silent/Vibrate)"
                 android:textColor="#94A3B8"
                 android:textSize="12sp" />
 
@@ -214,7 +249,7 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- 4. FLIP FOR DND -->
+        <!-- 4. FLIP FOR DO NOT DISTURB -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -236,7 +271,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Place phone face-down to enable DND automatically; pick up to restore"
+                android:text="Place phone face-down to activate DND; pick up to restore normal mode"
                 android:textColor="#94A3B8"
                 android:textSize="12sp" />
         </LinearLayout>

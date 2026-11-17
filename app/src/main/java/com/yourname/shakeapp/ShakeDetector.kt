@@ -12,47 +12,55 @@ class ShakeDetector(
     private val context: Context
 ) : SensorEventListener {
 
+    private val prefs = context.getSharedPreferences("shake_prefs", Context.MODE_PRIVATE)
     private var isPocketCovered = false
     private var hasHardwareGyro = false
 
-    // Gravity filter state
+    // Gravity low-pass filter
     private val gravity = FloatArray(3)
     private var gravityInitialized = false
 
-    // --- 1. CHOP-CHOP STATE (Peak & Opposite Sign Detection) ---
-    private var chopState = 0 // 0 = idle, 1 = first chop peak confirmed
+    // 1. Chop-Chop Peak Inflection State
+    private var chopState = 0
     private var firstChopSign = 0
     private var firstChopPeakTime = 0L
     private var lastChopTriggerTime = 0L
     private var prevLx = 0f
     private var risingX = false
 
-    // --- 2. TWIST-TWIST STATE ---
+    // 2. Twist-Twist State
     private var twistCount = 0
     private var lastTwistDir = 0
     private var lastTwistPeakTime = 0L
     private var lastTwistTriggerTime = 0L
     private var prevRollAngle = 0f
 
-    // --- 3. PICK-UP STATE ---
+    // 3. Pick-Up State
     private var wasFlatOnTable = false
     private var flatSinceTime = 0L
     private var lastPickupTriggerTime = 0L
 
-    // --- 4. FLIP FOR DND STATE ---
+    // 4. Flip for DND State
     private var isFaceDownDndActive = false
     private var faceDownSinceTime = 0L
 
-    // --- TUNED MOTOROLA THRESHOLDS ---
-    // 19.5 m/s² (~2.0G) peak inflection feels effortless like real Moto Chop-Chop
-    private val CHOP_PEAK_THRESHOLD = 19.5f
-    private val CHOP_MIN_GAP_MS = 110L
-    private val CHOP_MAX_GAP_MS = 520L
+    // Dynamic Thresholds mapped from UI sliders (0..100)
+    // Progress 100 (Very Sensitive) -> 13.5 m/s² | Progress 55 (Moto Default) -> 18.8 m/s² | Progress 0 (Hard) -> 27.0 m/s²
+    private fun getChopThreshold(): Float {
+        val progress = prefs.getInt("chop_sensitivity", 55)
+        return 27.0f - (progress / 100f) * 13.5f
+    }
 
-    // 3.6 rad/s is optimal for Samsung A14 5G & mid-range gyros
-    private val TWIST_GYRO_THRESHOLD = 3.6f
-    private val TWIST_MIN_GAP_MS = 110L
-    private val TWIST_MAX_GAP_MS = 600L
+    // Progress 100 (Very Sensitive) -> 2.3 rad/s | Progress 55 (Moto Default) -> 3.4 rad/s | Progress 0 (Hard) -> 5.2 rad/s
+    private fun getTwistGyroThreshold(): Float {
+        val progress = prefs.getInt("twist_sensitivity", 55)
+        return 5.2f - (progress / 100f) * 2.9f
+    }
+
+    private fun getTwistRollFallbackThreshold(): Float {
+        val progress = prefs.getInt("twist_sensitivity", 55)
+        return 48.0f - (progress / 100f) * 20.0f
+    }
 
     override fun onSensorChanged(event: SensorEvent) {
         val now = System.currentTimeMillis()
@@ -78,7 +86,7 @@ class ShakeDetector(
                     gravity[2] = az
                     gravityInitialized = true
                 } else {
-                    val alpha = 0.82f
+                    val alpha = 0.80f
                     gravity[0] = alpha * gravity[0] + (1 - alpha) * ax
                     gravity[1] = alpha * gravity[1] + (1 - alpha) * ay
                     gravity[2] = alpha * gravity[2] + (1 - alpha) * az
@@ -92,7 +100,6 @@ class ShakeDetector(
                 handlePickUpGesture(ax, ay, az, now)
                 handleMotorolaChopChop(lx, ly, lz, now)
 
-                // Fallback Twist detection if device lacks hardware gyroscope
                 if (!hasHardwareGyro) {
                     handleAccelRollTwist(ax, ay, az, now)
                 }
@@ -105,26 +112,23 @@ class ShakeDetector(
         }
     }
 
-    // =========================================================================
-    // 1. EXACT MOTOROLA CHOP-CHOP (Peak Inflection + Opposite Wrist Snap)
-    // =========================================================================
+    // --- 1. EXACT MOTOROLA CHOP-CHOP ---
     private fun handleMotorolaChopChop(lx: Float, ly: Float, lz: Float, now: Long) {
         if (isPocketCovered) return
-        if (now - lastChopTriggerTime < 850L) return
+        if (now - lastChopTriggerTime < 800L) return
 
         val absX = abs(lx)
         val absPrevX = abs(prevLx)
 
-        // Detect true local peak (acceleration was rising, now starts dropping)
         if (absX > absPrevX) {
             risingX = true
         } else if (risingX && absX < absPrevX) {
             risingX = false
 
-            // Evaluate the peak that just occurred (prevLx)
-            val isDominantLateral = absPrevX >= CHOP_PEAK_THRESHOLD &&
-                    absPrevX > abs(lz) * 1.15f &&
-                    absPrevX > abs(ly) * 0.85f
+            val threshold = getChopThreshold()
+            val isDominantLateral = absPrevX >= threshold &&
+                    absPrevX > abs(lz) * 1.1f &&
+                    absPrevX > abs(ly) * 0.8f
 
             if (isDominantLateral) {
                 val peakSign = if (prevLx > 0) 1 else -1
@@ -135,13 +139,12 @@ class ShakeDetector(
                     firstChopPeakTime = now
                 } else if (chopState == 1) {
                     val dt = now - firstChopPeakTime
-                    if (dt > CHOP_MAX_GAP_MS) {
-                        // Too slow — treat this chop as the new first chop
+                    if (dt > 550L) {
                         firstChopSign = peakSign
                         firstChopPeakTime = now
-                    } else if (dt >= CHOP_MIN_GAP_MS) {
-                        // Motorola signature: either opposing snap (+X then -X) or sharp second chop
-                        if (peakSign != firstChopSign || dt >= 180L) {
+                    } else if (dt >= 95L) {
+                        // Opposing lateral snap (+X <-> -X) or sharp consecutive chop
+                        if (peakSign != firstChopSign || dt >= 165L) {
                             lastChopTriggerTime = now
                             resetChop()
                             GestureActionExecutor.execute(context, "chop")
@@ -151,8 +154,7 @@ class ShakeDetector(
             }
         }
 
-        // Timeout reset if second chop never came
-        if (chopState == 1 && now - firstChopPeakTime > CHOP_MAX_GAP_MS) {
+        if (chopState == 1 && now - firstChopPeakTime > 550L) {
             resetChop()
         }
 
@@ -166,19 +168,17 @@ class ShakeDetector(
         risingX = false
     }
 
-    // =========================================================================
-    // 2. EXACT MOTOROLA TWIST-TWIST (Quick Capture)
-    // =========================================================================
+    // --- 2. EXACT MOTOROLA TWIST-TWIST ---
     private fun handleMotorolaTwistTwist(gx: Float, gy: Float, gz: Float, now: Long) {
         if (isPocketCovered) return
-        if (now - lastTwistTriggerTime < 1000L) return
+        if (now - lastTwistTriggerTime < 950L) return
 
-        // Wrist twist rotates around phone's longitudinal Y-axis (portrait)
+        val threshold = getTwistGyroThreshold()
         val absY = abs(gy)
         val absX = abs(gx)
         val absZ = abs(gz)
 
-        if (absY >= TWIST_GYRO_THRESHOLD && absY > absX * 1.25f && absY > absZ * 1.1f) {
+        if (absY >= threshold && absY > absX * 1.2f && absY > absZ * 1.05f) {
             val dir = if (gy > 0) 1 else -1
 
             if (twistCount == 0) {
@@ -187,16 +187,15 @@ class ShakeDetector(
                 lastTwistPeakTime = now
             } else {
                 val dt = now - lastTwistPeakTime
-                if (dt > TWIST_MAX_GAP_MS) {
+                if (dt > 650L) {
                     twistCount = 1
                     lastTwistDir = dir
                     lastTwistPeakTime = now
-                } else if (dt >= TWIST_MIN_GAP_MS && dir != lastTwistDir) {
+                } else if (dt >= 95L && dir != lastTwistDir) {
                     twistCount++
                     lastTwistDir = dir
                     lastTwistPeakTime = now
 
-                    // 2 opposing wrist twists (turn in -> snap back) = instant trigger
                     if (twistCount >= 2) {
                         lastTwistTriggerTime = now
                         resetTwist()
@@ -206,27 +205,26 @@ class ShakeDetector(
             }
         }
 
-        if (twistCount > 0 && now - lastTwistPeakTime > TWIST_MAX_GAP_MS) {
+        if (twistCount > 0 && now - lastTwistPeakTime > 650L) {
             resetTwist()
         }
     }
 
-    // Accelerometer roll-angle fallback for devices without hardware Gyroscope
     private fun handleAccelRollTwist(ax: Float, ay: Float, az: Float, now: Long) {
         if (isPocketCovered) return
-        if (now - lastTwistTriggerTime < 1000L) return
+        if (now - lastTwistTriggerTime < 950L) return
 
         val roll = Math.toDegrees(atan2(ax.toDouble(), az.toDouble())).toFloat()
         val deltaRoll = roll - prevRollAngle
         prevRollAngle = roll
 
-        if (abs(deltaRoll) > 38f && abs(ay) < 8.5f) {
+        if (abs(deltaRoll) > getTwistRollFallbackThreshold() && abs(ay) < 8.5f) {
             val dir = if (deltaRoll > 0) 1 else -1
-            if (twistCount == 0 || now - lastTwistPeakTime > TWIST_MAX_GAP_MS) {
+            if (twistCount == 0 || now - lastTwistPeakTime > 650L) {
                 twistCount = 1
                 lastTwistDir = dir
                 lastTwistPeakTime = now
-            } else if (now - lastTwistPeakTime >= TWIST_MIN_GAP_MS && dir != lastTwistDir) {
+            } else if (now - lastTwistPeakTime >= 95L && dir != lastTwistDir) {
                 lastTwistTriggerTime = now
                 resetTwist()
                 GestureActionExecutor.execute(context, "twist")
@@ -240,14 +238,11 @@ class ShakeDetector(
         lastTwistPeakTime = 0L
     }
 
-    // =========================================================================
-    // 3. MOTOROLA PICK UP GESTURE
-    // =========================================================================
+    // --- 3. MOTOROLA PICK UP GESTURE ---
     private fun handlePickUpGesture(ax: Float, ay: Float, az: Float, now: Long) {
         if (isPocketCovered) return
 
         val totalG = sqrt(ax * ax + ay * ay + az * az)
-        // Phone resting stationary and flat face-up
         val isFlatFaceUp = az > 8.9f && abs(ax) < 1.8f && abs(ay) < 1.8f && abs(totalG - 9.81f) < 1.2f
         if (isFlatFaceUp) {
             if (!wasFlatOnTable) {
@@ -257,12 +252,11 @@ class ShakeDetector(
             return
         }
 
-        // Lifted to natural viewing tilt
         val isLiftedUpright = ay > 5.2f && az > 1.5f && az < 8.2f && abs(ax) < 3.5f
         if (wasFlatOnTable && isLiftedUpright) {
             val restedDuration = now - flatSinceTime
             wasFlatOnTable = false
-            if (restedDuration >= 1200L && now - lastPickupTriggerTime > 2000L) {
+            if (restedDuration >= 1100L && now - lastPickupTriggerTime > 2000L) {
                 lastPickupTriggerTime = now
                 GestureActionExecutor.execute(context, "pickup")
             }
@@ -271,16 +265,14 @@ class ShakeDetector(
         }
     }
 
-    // =========================================================================
-    // 4. MOTOROLA FLIP FOR DO NOT DISTURB
-    // =========================================================================
+    // --- 4. MOTOROLA FLIP FOR DO NOT DISTURB ---
     private fun handleFlipForDnd(ax: Float, ay: Float, az: Float, now: Long) {
         val isFaceDown = az < -8.9f && abs(ax) < 2.0f && abs(ay) < 2.0f
 
         if (isFaceDown) {
             if (faceDownSinceTime == 0L) {
                 faceDownSinceTime = now
-            } else if (!isFaceDownDndActive && now - faceDownSinceTime >= 900L) {
+            } else if (!isFaceDownDndActive && now - faceDownSinceTime >= 850L) {
                 isFaceDownDndActive = true
                 GestureActionExecutor.setFlipDndState(context, true)
             }
