@@ -19,7 +19,7 @@ class ShakeService : Service() {
 
     private lateinit var sensorManager: SensorManager
     private lateinit var shakeDetector: ShakeDetector
-    private var wakeLock: PowerManager.WakeLock? = null
+    private var cpuWakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -41,23 +41,24 @@ class ShakeService : Service() {
         shakeDetector = ShakeDetector(this)
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
+        cpuWakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
-            "ShakeAction::MotoGesturesWakeLock"
+            "ShakeAction::RealtimeSensorHubLock"
         ).apply {
             acquire()
         }
 
+        // maxReportLatencyUs = 0 forces real-time delivery without hardware FIFO batching delay
         sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME, 0)
         }
 
         sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
-            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_GAME, 0)
         }
 
         sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)?.let {
-            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_NORMAL)
+            sensorManager.registerListener(shakeDetector, it, SensorManager.SENSOR_DELAY_FASTEST, 0)
         }
     }
 
@@ -69,7 +70,7 @@ class ShakeService : Service() {
         if (::sensorManager.isInitialized && ::shakeDetector.isInitialized) {
             sensorManager.unregisterListener(shakeDetector)
         }
-        wakeLock?.let {
+        cpuWakeLock?.let {
             if (it.isHeld) it.release()
         }
         super.onDestroy()
@@ -87,7 +88,7 @@ class ShakeService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Moto Actions Active")
-            .setContentText("Chop, Twist, Pick Up & Flip gestures running")
+            .setContentText("Real-time hardware gesture engine running")
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(openAppIntent)
             .setOngoing(true)

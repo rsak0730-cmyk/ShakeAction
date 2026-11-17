@@ -1,6 +1,8 @@
 package com.yourname.shakeapp
 
+import android.app.ActivityOptions
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
@@ -9,6 +11,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -112,18 +115,60 @@ object GestureActionExecutor {
         return cameraManager.cameraIdList.firstOrNull()
     }
 
-    private fun openCamera(context: Context) {
+    // --- SCREEN-OFF WAKE UP (B POINT FIX) ---
+    @Suppress("DEPRECATION")
+    private fun wakeUpScreen(context: Context) {
         try {
-            val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isInteractive) {
+                val screenWakeLock = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "ShakeAction::ScreenWakeTrigger"
+                )
+                screenWakeLock.acquire(3000L)
             }
-            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun openCamera(context: Context) {
+        wakeUpScreen(context)
+        val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA_SECURE).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        launchActivityFromBackground(context, intent)
+    }
+
+    private fun launchApp(context: Context, packageName: String) {
+        wakeUpScreen(context)
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName) ?: return
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        launchActivityFromBackground(context, launchIntent)
+    }
+
+    private fun launchActivityFromBackground(context: Context, intent: Intent) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val options = ActivityOptions.makeBasic().apply {
+                    setPendingIntentBackgroundActivityStartMode(
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                    )
+                }
+                val pendingIntent = PendingIntent.getActivity(
+                    context,
+                    System.currentTimeMillis().toInt(),
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    options.toBundle()
+                )
+                pendingIntent.send()
+            } else {
+                context.startActivity(intent)
+            }
         } catch (e: Exception) {
             try {
-                val fallback = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(fallback)
+                context.startActivity(intent)
             } catch (ex: Exception) {
                 ex.printStackTrace()
             }
@@ -174,18 +219,6 @@ object GestureActionExecutor {
             triggerMotorolaHaptic(context)
         } else if (!enableDnd && current != NotificationManager.INTERRUPTION_FILTER_ALL) {
             nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
-        }
-    }
-
-    private fun launchApp(context: Context, packageName: String) {
-        try {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-            launchIntent?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(this)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
